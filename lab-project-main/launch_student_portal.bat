@@ -1,0 +1,99 @@
+@echo off
+setlocal EnableDelayedExpansion
+title SmartLab Monitor
+
+cd /d "%~dp0"
+
+set "PORTAL_URL= https://student-portal-two-opal.vercel.app/student.html"
+
+REM ---------------------------------------------------------
+REM 1. Fast Browser Detection (Chrome -> Edge -> Default)
+REM ---------------------------------------------------------
+set "BROWSER_EXE="
+set "BROWSER_TYPE="
+
+if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" (
+    set "BROWSER_EXE=%ProgramFiles%\Google\Chrome\Application\chrome.exe"
+    set "BROWSER_TYPE=CHROME"
+) else if exist "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe" (
+    set "BROWSER_EXE=%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"
+    set "BROWSER_TYPE=CHROME"
+) else if exist "%LocalAppData%\Google\Chrome\Application\chrome.exe" (
+    set "BROWSER_EXE=%LocalAppData%\Google\Chrome\Application\chrome.exe"
+    set "BROWSER_TYPE=CHROME"
+)
+
+if not defined BROWSER_EXE (
+    where chrome.exe >nul 2>&1
+    if !ERRORLEVEL! equ 0 (
+        for /f "delims=" %%C in ('where chrome.exe 2^>nul') do (
+            if not defined BROWSER_EXE (
+                set "BROWSER_EXE=%%C"
+                set "BROWSER_TYPE=CHROME"
+            )
+        )
+    )
+)
+
+if not defined BROWSER_EXE (
+    if exist "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" (
+        set "BROWSER_EXE=%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"
+        set "BROWSER_TYPE=EDGE"
+    ) else if exist "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" (
+        set "BROWSER_EXE=%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"
+        set "BROWSER_TYPE=EDGE"
+    )
+)
+
+if not defined BROWSER_EXE (
+    where msedge.exe >nul 2>&1
+    if !ERRORLEVEL! equ 0 (
+        for /f "delims=" %%E in ('where msedge.exe 2^>nul') do (
+            if not defined BROWSER_EXE (
+                set "BROWSER_EXE=%%E"
+                set "BROWSER_TYPE=EDGE"
+            )
+        )
+    )
+)
+
+REM ---------------------------------------------------------
+REM 2. Fast Backend Check & Launch
+REM ---------------------------------------------------------
+set "BACKEND_ALIVE=0"
+python -c "import socket; s = socket.socket(); s.settimeout(0.3); exit(0 if s.connect_ex(('127.0.0.1', 5000)) == 0 else 1)" >nul 2>&1
+if !ERRORLEVEL! equ 0 (
+    set "BACKEND_ALIVE=1"
+)
+
+if "!BACKEND_ALIVE!"=="0" (
+    echo Starting SmartLab Backend...
+    start "SmartLab Backend" /min cmd /c "cd /d ""%~dp0"" && python app.py"
+
+    REM Fast reactive wait (checks every 80ms, max 2.5s, exits the millisecond it is ready)
+    python -c "import socket, time; t0 = time.time(); [time.sleep(0.08) for _ in iter(lambda: (lambda s: (s.connect_ex(('127.0.0.1', 5000)) != 0 and (s.close() or True) and time.time() - t0 < 2.5))(socket.socket()), False)]" >nul 2>&1
+)
+
+REM ---------------------------------------------------------
+REM 3. Instant Portal Launch
+REM ---------------------------------------------------------
+set "MODE=kiosk"
+if /i "%~1"=="--window" set "MODE=window"
+if /i "%~1"=="-w" set "MODE=window"
+if /i "%~1"=="/w" set "MODE=window"
+
+if defined BROWSER_EXE (
+    if "!MODE!"=="window" (
+        start "" "!BROWSER_EXE!" --new-window --app="%PORTAL_URL%"
+    ) else (
+        if "!BROWSER_TYPE!"=="EDGE" (
+            start "" "!BROWSER_EXE!" --new-window --kiosk "%PORTAL_URL%" --edge-kiosk-type=fullscreen
+        ) else (
+            start "" "!BROWSER_EXE!" --new-window --kiosk "%PORTAL_URL%"
+        )
+    )
+) else (
+    start "" "%PORTAL_URL%"
+)
+
+exit
